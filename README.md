@@ -43,7 +43,7 @@ We utilize the **CIRA-CIC-DoHBrw-2020** dataset from the Canadian Institute for 
 ### **Quick Start (The "3-Command" Rule)**
 
 1. **Clone the Repository:**  
-   git clone \[https://github.com/your-username/sentinel-doh.git\](https://github.com/your-username/sentinel-doh.git)  
+   git clone \[https://github.com/Cha-Zar/Sentinel-DoH.git\]
    cd sentinel-doh
 
 2. **Build the Environment:**  
