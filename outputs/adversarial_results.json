@@ -1,0 +1,116 @@
+{
+  "xgboost": {
+    "clean": {
+      "model": "XGBoost [clean]",
+      "precision_macro": 0.9996114920598694,
+      "recall_macro": 0.9998437500378934,
+      "f1_macro": 0.9997275890123827,
+      "precision_class1": 0.9999799863907457,
+      "recall_class1": 0.9999399615754082,
+      "f1_class1": 0.9999599735825645,
+      "auc_roc": 0.9999999292655101,
+      "auc_pr": 0.9999999943925926
+    },
+    "jitter_0.05": {
+      "model": "XGBoost [jitter \u03c3=5%]",
+      "precision_macro": 0.9977275467514726,
+      "recall_macro": 0.9996936539764141,
+      "f1_macro": 0.9987082987276377,
+      "precision_class1": 0.9999799803807732,
+      "recall_class1": 0.9996397694524496,
+      "f1_class1": 0.9998098459752399,
+      "auc_roc": 0.9999964178033295,
+      "auc_pr": 0.999999715726873
+    },
+    "jitter_0.1": {
+      "model": "XGBoost [jitter \u03c3=10%]",
+      "precision_macro": 0.9983539479000267,
+      "recall_macro": 0.9997436859969072,
+      "f1_macro": 0.9990476679594364,
+      "precision_class1": 0.9999799823844984,
+      "recall_class1": 0.9997398334934358,
+      "f1_class1": 0.9998598935190744,
+      "auc_roc": 0.999996271281886,
+      "auc_pr": 0.9999997044775141
+    },
+    "jitter_0.2": {
+      "model": "XGBoost [jitter \u03c3=20%]",
+      "precision_macro": 0.9982285415706547,
+      "recall_macro": 0.9997336795928087,
+      "f1_macro": 0.9989797626213772,
+      "precision_class1": 0.9999799819837855,
+      "recall_class1": 0.9997198206852386,
+      "f1_class1": 0.9998498844109964,
+      "auc_roc": 0.9999962258097138,
+      "auc_pr": 0.999999701282542
+    },
+    "padding_0.1": {
+      "model": "XGBoost [padding \u03b4=\u00b110%]",
+      "precision_macro": 0.5692296663129773,
+      "recall_macro": 0.7534614655272835,
+      "f1_macro": 0.45868216613533697,
+      "precision_class1": 0.9998031341050476,
+      "recall_class1": 0.5081852385526737,
+      "f1_class1": 0.6738582384629674,
+      "auc_roc": 0.9597729823027156,
+      "auc_pr": 0.9964479043369264
+    }
+  },
+  "cnn": {
+    "clean": {
+      "model": "1D-CNN [clean]",
+      "precision_macro": 0.9534555999581846,
+      "recall_macro": 0.9924529709617538,
+      "f1_macro": 0.9719866340319493,
+      "precision_class1": 0.9994354269583627,
+      "recall_class1": 0.9919748639129042,
+      "f1_class1": 0.9956911704147123,
+      "auc_roc": 0.9991043472568719,
+      "auc_pr": 0.9998929114214302
+    },
+    "jitter_0.05": {
+      "model": "1D-CNN [jitter \u03c3=5%]",
+      "precision_macro": 0.942784513865178,
+      "recall_macro": 0.9906649268407317,
+      "f1_macro": 0.9652412208169701,
+      "precision_class1": 0.9993131035597398,
+      "recall_class1": 0.9899135446685879,
+      "f1_class1": 0.9945911165624435,
+      "auc_roc": 0.9988485688149175,
+      "auc_pr": 0.99985689921419
+    },
+    "jitter_0.1": {
+      "model": "1D-CNN [jitter \u03c3=10%]",
+      "precision_macro": 0.9094763621728594,
+      "recall_macro": 0.984481820447894,
+      "f1_macro": 0.9431305643322341,
+      "precision_class1": 0.9988813407639425,
+      "recall_class1": 0.9828490233749599,
+      "f1_class1": 0.9908003308652934,
+      "auc_roc": 0.9981118084723429,
+      "auc_pr": 0.999794931592908
+    },
+    "jitter_0.2": {
+      "model": "1D-CNN [jitter \u03c3=20%]",
+      "precision_macro": 0.7926129142354141,
+      "recall_macro": 0.9561416857912517,
+      "f1_macro": 0.8510777061074793,
+      "precision_class1": 0.9971532800539823,
+      "recall_class1": 0.94636567403138,
+      "f1_class1": 0.9710958918175191,
+      "auc_roc": 0.9918254701438609,
+      "auc_pr": 0.9992878186000261
+    },
+    "padding_0.1": {
+      "model": "1D-CNN [padding \u03b4=\u00b110%]",
+      "precision_macro": 0.9474773608266769,
+      "recall_macro": 0.9913776829288896,
+      "f1_macro": 0.9681895889764012,
+      "precision_class1": 0.9993540834039805,
+      "recall_class1": 0.9908341338456612,
+      "f1_class1": 0.9950758717716812,
+      "auc_roc": 0.9990714481403417,
+      "auc_pr": 0.9999043308404261
+    }
+  }
+}
