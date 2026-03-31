@@ -1,7 +1,3 @@
-# =============================================================================
-# SENTINEL-DoH — Docker Image
-# Single-command reproducible pipeline: docker run sentinel-doh
-# =============================================================================
 FROM python:3.10-slim
 
 # Prevent Python from writing .pyc files & enable unbuffered output
