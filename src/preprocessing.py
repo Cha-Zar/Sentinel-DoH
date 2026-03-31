@@ -1,13 +1,4 @@
-"""
-SENTINEL-DoH — Data Preprocessing Pipeline
-============================================
-Handles all data loading, cleaning, feature engineering, splitting, scaling,
-and SMOTE oversampling for both the ML (XGBoost) and DL (1D-CNN) paths.
-
-Dataset: CIRA-CIC-DoHBrw-2020
-- Layer 2 task: classify DoH traffic as **Benign** (0) vs **Malicious / Tunneling** (1).
-- Features: pre-extracted statistical flow features (CSV).
-"""
+"""Data loading and preprocessing helpers for model training."""
 
 from __future__ import annotations
 
@@ -38,7 +29,6 @@ from src.config import (
 logger = logging.getLogger("sentinel_doh")
 
 
-# ─── Data Container ─────────────────────────────────────────────────────────
 @dataclass
 class SplitData:
     """Holds train / validation / test arrays after all preprocessing."""
@@ -51,10 +41,9 @@ class SplitData:
     y_test: np.ndarray
     feature_names: list[str]
     scaler: StandardScaler
-    timestamps_test: Optional[np.ndarray] = None  # kept for temporal analysis
+    timestamps_test: Optional[np.ndarray] = None  # Keep test timestamps for drift checks.
 
 
-# ─── Loading ─────────────────────────────────────────────────────────────────
 def _find_csv_files(data_dir: Path) -> list[Path]:
     """Recursively find all CSV files under *data_dir*.
 
@@ -72,7 +61,7 @@ def _find_csv_files(data_dir: Path) -> list[Path]:
             "CSV files (e.g. l2-*.csv or per-tool CSVs) inside the data/ directory."
         )
 
-    # If Layer-2 files exist, use only those (ignore l1-* DoH/NonDoH files)
+    # Prefer L2 files when both L1 and L2 are present.
     l2_files = [f for f in found if f.stem.lower().startswith("l2")]
     if l2_files:
         logger.info(
@@ -93,10 +82,10 @@ def _infer_label(filepath: Path, df: pd.DataFrame) -> pd.DataFrame:
     2. No ``Label`` column, but the file/folder name hints at the class
        (e.g. ``benign/Chrome.csv`` vs ``malicious/dns2tcp.csv``).
     """
-    # ── Case 1: Label column exists ──────────────────────────────────────
+    # Case 1: Label column already exists.
     if LABEL_COL in df.columns:
         if df[LABEL_COL].dtype == object or pd.api.types.is_string_dtype(df[LABEL_COL]):
-            # Normalise string labels to integers (case-insensitive)
+            # Normalize common string forms to 0/1.
             df[LABEL_COL] = df[LABEL_COL].str.strip().str.lower().map(
                 {"benign": 0, "malicious": 1, "0": 0, "1": 1}
             )
@@ -107,7 +96,7 @@ def _infer_label(filepath: Path, df: pd.DataFrame) -> pd.DataFrame:
         df[LABEL_COL] = df[LABEL_COL].astype(int)
         return df
 
-    # ── Case 2: Infer from path ─────────────────────────────────────────
+    # Case 2: infer labels from path and filename.
     path_lower = str(filepath).lower()
     if "malicious" in path_lower or any(
         tool in path_lower for tool in ("dns2tcp", "dnscat", "iodine")
@@ -152,14 +141,13 @@ def load_dataset(data_dir: Optional[Path] = None) -> pd.DataFrame:
     return combined
 
 
-# ─── Cleaning ────────────────────────────────────────────────────────────────
 def clean(df: pd.DataFrame) -> pd.DataFrame:
     """Drop non-numeric metadata, handle NaN / Inf, and validate features."""
     # Drop metadata IP/port columns (not useful for classification)
     cols_to_drop = [c for c in META_COLS if c in df.columns]
     df = df.drop(columns=cols_to_drop, errors="ignore")
 
-    # Ensure expected numeric features exist (some datasets may have slight name variations)
+    # Some releases have minor column-name differences.
     available = [f for f in NUMERIC_FEATURES if f in df.columns]
     missing = set(NUMERIC_FEATURES) - set(available)
     if missing:
@@ -167,17 +155,17 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
         for col in missing:
             df[col] = 0.0
 
-    # Replace infinities and fill NaN with column median
+    # Replace inf and fill gaps with per-column medians.
     df = df.replace([np.inf, -np.inf], np.nan)
     for col in NUMERIC_FEATURES:
         if df[col].isna().any():
             median_val = df[col].median()
-            # If median is also NaN (entire column NaN), fill with 0
+            # Entirely empty columns default to 0.
             if pd.isna(median_val):
                 median_val = 0.0
             df[col] = df[col].fillna(median_val)
 
-    # Final safety: coerce all feature columns to float and drop any remaining NaN rows
+    # Final safety pass before train/val/test split.
     for col in NUMERIC_FEATURES:
         df[col] = pd.to_numeric(df[col], errors="coerce")
     remaining_nan = df[NUMERIC_FEATURES].isna().any(axis=1).sum()
@@ -189,7 +177,6 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-# ─── Splitting ───────────────────────────────────────────────────────────────
 def split_stratified(
     df: pd.DataFrame,
     chronological: bool = False,
@@ -229,7 +216,6 @@ def split_stratified(
     return train_df, val_df, test_df
 
 
-# ─── Scaling & SMOTE ────────────────────────────────────────────────────────
 def prepare_arrays(
     train_df: pd.DataFrame,
     val_df: pd.DataFrame,
@@ -237,8 +223,8 @@ def prepare_arrays(
     apply_smote: bool = True,
 ) -> SplitData:
     """
-    Convert DataFrames → numpy arrays, apply StandardScaler, and optionally
-    SMOTE on the **training set only** (Section IV.1).
+    Convert DataFrames to numpy arrays, apply StandardScaler, and optionally
+    apply SMOTE on the training split only.
     """
     feature_cols = [c for c in NUMERIC_FEATURES if c in train_df.columns]
 
@@ -249,18 +235,18 @@ def prepare_arrays(
     X_test = test_df[feature_cols].values.astype(np.float32)
     y_test = test_df[LABEL_COL].values.astype(np.int32)
 
-    # Preserve test timestamps for temporal analysis (if available)
+    # Keep test timestamps when available.
     timestamps_test = None
     if TIMESTAMP_COL in test_df.columns:
         timestamps_test = test_df[TIMESTAMP_COL].values
 
-    # ── Standard scaling (fit on train only) ─────────────────────────────
+    # Fit scaler on train only, then apply to val/test.
     scaler = StandardScaler()
     X_train = scaler.fit_transform(X_train)
     X_val = scaler.transform(X_val)
     X_test = scaler.transform(X_test)
 
-    # ── SMOTE oversampling — training set ONLY ───────────────────────────
+    # Apply SMOTE only on the training split.
     if apply_smote:
         from imblearn.over_sampling import SMOTE
 
@@ -287,7 +273,6 @@ def prepare_arrays(
     )
 
 
-# ─── Full Pipeline Convenience ──────────────────────────────────────────────
 def run_preprocessing(
     data_dir: Optional[Path] = None,
     chronological: bool = False,

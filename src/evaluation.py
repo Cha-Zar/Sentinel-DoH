@@ -1,16 +1,4 @@
-"""
-SENTINEL-DoH — Evaluation & Metrics
-=====================================
-Section IV.2 of the specification.
-
-Computes and visualises:
-* Precision, Recall, F1-score (macro-average)
-* AUC-ROC and AUC-PR
-* Confusion Matrix (side-by-side for ML vs DL)
-* Confidence score distribution
-* High-confidence failure analysis (FP with score > 0.95)
-* Training history curves (CNN loss and AUC)
-"""
+"""Metrics, plots, and reporting utilities for model evaluation."""
 
 from __future__ import annotations
 
@@ -20,7 +8,8 @@ from pathlib import Path
 from typing import Dict, Optional
 
 import matplotlib
-matplotlib.use("Agg")  # Non-interactive backend for headless environments
+
+matplotlib.use("Agg")  # Headless backend for CLI and Docker runs.
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
@@ -40,21 +29,20 @@ from src.config import OUTPUT_DIR
 
 logger = logging.getLogger("sentinel_doh")
 
-# Consistent plot style
+# Keep figures consistent across runs.
 sns.set_theme(style="whitegrid", font_scale=1.1)
 plt.rcParams.update({"figure.dpi": 150, "savefig.bbox": "tight"})
 
 TARGET_NAMES = ["Benign (0)", "Malicious (1)"]
 
 
-# ─── Core Metrics ────────────────────────────────────────────────────────────
 def compute_metrics(
     y_true: np.ndarray,
     y_pred: np.ndarray,
     y_prob: np.ndarray,
     model_name: str = "Model",
 ) -> Dict:
-    """Compute all metrics from Section IV.2 and return as a dict."""
+    """Compute a standard binary-classification metric bundle."""
     metrics = {
         "model": model_name,
         "precision_macro": float(precision_score(y_true, y_pred, average="macro", zero_division=0)),
@@ -78,14 +66,13 @@ def compute_metrics(
     return metrics
 
 
-# ─── Confusion Matrix ───────────────────────────────────────────────────────
 def plot_confusion_matrices(
     y_true: np.ndarray,
     y_pred_ml: np.ndarray,
     y_pred_dl: np.ndarray,
     save_path: Optional[Path] = None,
 ) -> None:
-    """Side-by-side confusion matrices for ML vs DL."""
+    """Plot side-by-side confusion matrices for XGBoost and CNN."""
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 
     for ax, y_pred, title in zip(
@@ -107,25 +94,24 @@ def plot_confusion_matrices(
         ax.set_ylabel("True Label")
         ax.set_xlabel("Predicted Label")
 
-    plt.suptitle("Confusion Matrices — Test Set", fontsize=14, y=1.02)
+    plt.suptitle("Confusion Matrices - Test Set", fontsize=14, y=1.02)
     plt.tight_layout()
     save_path = save_path or OUTPUT_DIR / "confusion_matrices.png"
     plt.savefig(save_path)
     plt.close()
-    logger.info("Confusion matrices saved → %s", save_path)
+    logger.info("Confusion matrices saved to %s", save_path)
 
 
-# ─── ROC & PR Curves ────────────────────────────────────────────────────────
 def plot_roc_pr_curves(
     y_true: np.ndarray,
     y_prob_ml: np.ndarray,
     y_prob_dl: np.ndarray,
     save_path: Optional[Path] = None,
 ) -> None:
-    """Combined ROC + PR curves for both models."""
+    """Plot ROC and precision-recall curves for both models."""
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
-    # ROC
+    # ROC curves
     ax = axes[0]
     for y_prob, label, color in [
         (y_prob_ml, "XGBoost", "#2196F3"),
@@ -140,7 +126,7 @@ def plot_roc_pr_curves(
     ax.set_title("ROC Curve")
     ax.legend(loc="lower right")
 
-    # PR
+    # Precision-recall curves
     ax = axes[1]
     for y_prob, label, color in [
         (y_prob_ml, "XGBoost", "#2196F3"),
@@ -149,37 +135,44 @@ def plot_roc_pr_curves(
         prec, rec, _ = precision_recall_curve(y_true, y_prob)
         ap = average_precision_score(y_true, y_prob)
         ax.plot(rec, prec, label=f"{label} (AP={ap:.4f})", color=color, lw=2)
-    # Baseline: prevalence of positive class
+
+    # Baseline is just positive class prevalence.
     pos_rate = y_true.mean()
-    ax.axhline(y=pos_rate, color="grey", linestyle="--", lw=1, alpha=0.5, label=f"Baseline ({pos_rate:.2f})")
+    ax.axhline(
+        y=pos_rate,
+        color="grey",
+        linestyle="--",
+        lw=1,
+        alpha=0.5,
+        label=f"Baseline ({pos_rate:.2f})",
+    )
     ax.set_xlabel("Recall")
     ax.set_ylabel("Precision")
-    ax.set_title("Precision–Recall Curve")
+    ax.set_title("Precision-Recall Curve")
     ax.legend(loc="upper right")
 
-    plt.suptitle("ROC & PR Curves — Test Set", fontsize=14, y=1.02)
+    plt.suptitle("ROC and PR Curves - Test Set", fontsize=14, y=1.02)
     plt.tight_layout()
     save_path = save_path or OUTPUT_DIR / "roc_pr_curves.png"
     plt.savefig(save_path)
     plt.close()
-    logger.info("ROC/PR curves saved → %s", save_path)
+    logger.info("ROC/PR curves saved to %s", save_path)
 
 
-# ─── Confidence Score Distribution ──────────────────────────────────────────
 def plot_confidence_distribution(
     y_true: np.ndarray,
     y_prob: np.ndarray,
     model_name: str = "Model",
     save_path: Optional[Path] = None,
 ) -> None:
-    """Histogram of confidence scores split by true class."""
+    """Plot score histograms split by ground-truth class."""
     fig, ax = plt.subplots(figsize=(8, 4))
     for cls, label, color in [(0, "Benign", "#4CAF50"), (1, "Malicious", "#F44336")]:
         mask = y_true == cls
         ax.hist(y_prob[mask], bins=50, alpha=0.6, label=label, color=color, density=True)
     ax.set_xlabel("Predicted Probability (malicious)")
     ax.set_ylabel("Density")
-    ax.set_title(f"{model_name} — Confidence Score Distribution")
+    ax.set_title(f"{model_name} - Confidence Score Distribution")
     ax.legend()
     plt.tight_layout()
     save_path = save_path or OUTPUT_DIR / f"confidence_dist_{model_name.lower().replace(' ', '_')}.png"
@@ -187,17 +180,13 @@ def plot_confidence_distribution(
     plt.close()
 
 
-# ─── High-Confidence Failure Analysis (Section VI) ──────────────────────────
 def analyse_high_confidence_failures(
     y_true: np.ndarray,
     y_prob: np.ndarray,
     model_name: str = "Model",
     threshold: float = 0.95,
 ) -> Dict:
-    """
-    Identify False Positives with prediction score > *threshold*.
-    These "over-confident wrong predictions" deserve manual review.
-    """
+    """Count high-confidence false positives and false negatives."""
     y_pred = (y_prob >= 0.5).astype(int)
     fp_mask = (y_pred == 1) & (y_true == 0)
     hc_fp_mask = fp_mask & (y_prob > threshold)
@@ -214,24 +203,24 @@ def analyse_high_confidence_failures(
         "threshold": threshold,
     }
     logger.info(
-        "%s surconfiance analysis: HC-FP=%d/%d, HC-FN=%d/%d (threshold=%.2f)",
+        "%s confidence analysis: HC-FP=%d/%d, HC-FN=%d/%d (threshold=%.2f)",
         model_name,
-        stats["high_confidence_fp"], stats["total_fp"],
-        stats["high_confidence_fn"], stats["total_fn"],
+        stats["high_confidence_fp"],
+        stats["total_fp"],
+        stats["high_confidence_fn"],
+        stats["total_fn"],
         threshold,
     )
     return stats
 
 
-# ─── CNN Training Curves ────────────────────────────────────────────────────
 def plot_training_history(
     history: Dict,
     save_path: Optional[Path] = None,
 ) -> None:
-    """Plot loss and AUC curves from Keras training history."""
+    """Plot CNN loss and AUC curves."""
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
-    # Loss
     ax = axes[0]
     ax.plot(history["loss"], label="Train", lw=2)
     ax.plot(history["val_loss"], label="Val", lw=2)
@@ -240,7 +229,6 @@ def plot_training_history(
     ax.set_title("Training Loss")
     ax.legend()
 
-    # AUC-ROC
     ax = axes[1]
     if "auc_roc" in history:
         ax.plot(history["auc_roc"], label="Train AUC-ROC", lw=2)
@@ -255,16 +243,15 @@ def plot_training_history(
     save_path = save_path or OUTPUT_DIR / "cnn_training_history.png"
     plt.savefig(save_path)
     plt.close()
-    logger.info("Training history plot saved → %s", save_path)
+    logger.info("Training history plot saved to %s", save_path)
 
 
-# ─── Save All Metrics to JSON ───────────────────────────────────────────────
 def save_metrics_json(
     metrics_list: list[Dict],
     save_path: Optional[Path] = None,
 ) -> None:
-    """Dump all metrics dicts to a JSON file for reproducible comparison."""
+    """Write all metrics to JSON."""
     save_path = save_path or OUTPUT_DIR / "metrics.json"
     with open(save_path, "w") as f:
         json.dump(metrics_list, f, indent=2)
-    logger.info("Metrics JSON saved → %s", save_path)
+    logger.info("Metrics JSON saved to %s", save_path)

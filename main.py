@@ -1,29 +1,10 @@
 #!/usr/bin/env python3
-"""
-SENTINEL-DoH — Main Pipeline Orchestrator
-===========================================
-Behavioural Classification of DNS-over-HTTPS Traffic
-via Hybrid ML/DL Spatio-Temporal Analysis.
+"""Entry point for the Sentinel-DoH training and evaluation pipeline.
 
-Usage
------
-    python main.py                    # Full pipeline (random split)
-    python main.py --chrono           # Include temporal-drift analysis
-    python main.py --skip-dl          # Only train XGBoost (faster)
-    python main.py --data-dir ./data  # Custom data directory
-    python main.py --help
-
-Pipeline Steps
---------------
-1. Data loading & preprocessing  (CIRA-CIC-DoHBrw-2020)
-2. XGBoost training & evaluation
-3. 1D-CNN training & evaluation
-4. Comparative evaluation (confusion matrices, ROC/PR, metrics JSON)
-5. Robustness tests (adversarial jitter + padding)
-6. Interpretability (SHAP + Grad-CAM 1D)
-7. (Optional) Temporal drift analysis with chronological split
-
-All outputs are saved to the ``outputs/`` directory.
+Examples:
+    python main.py
+    python main.py --chrono
+    python main.py --skip-dl
 """
 
 from __future__ import annotations
@@ -34,14 +15,16 @@ import sys
 import time
 from pathlib import Path
 
-# ── Project imports ──────────────────────────────────────────────────────────
+import numpy as np
+
+# Project imports
 from src.utils import setup_logging, set_seeds
 from src.config import OUTPUT_DIR, RANDOM_STATE
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="SENTINEL-DoH — DoH Traffic Classification Pipeline",
+        description="SENTINEL-DoH DoH Traffic Classification Pipeline",
     )
     p.add_argument(
         "--data-dir",
@@ -84,15 +67,13 @@ def main() -> None:
 
     t0 = time.time()
     logger.info("=" * 70)
-    logger.info("  SENTINEL-DoH  —  Pipeline Start")
+    logger.info("  SENTINEL-DoH - Pipeline Start")
     logger.info("=" * 70)
 
     all_metrics: list[dict] = []
 
-    # ================================================================
-    # 1. PREPROCESSING
-    # ================================================================
-    logger.info("\n▸ STEP 1 — Data Loading & Preprocessing")
+    # Step 1: preprocessing
+    logger.info("\nSTEP 1 - Data loading and preprocessing")
     from src.preprocessing import run_preprocessing
 
     data = run_preprocessing(
@@ -106,10 +87,8 @@ def main() -> None:
         len(data.feature_names),
     )
 
-    # ================================================================
-    # 2. XGBOOST (ML BASELINE)
-    # ================================================================
-    logger.info("\n▸ STEP 2 — XGBoost Training")
+    # Step 2: XGBoost baseline
+    logger.info("\nSTEP 2 - XGBoost training")
     from src.models_ml import build_xgboost
     from src.evaluation import compute_metrics, analyse_high_confidence_failures
 
@@ -123,13 +102,11 @@ def main() -> None:
         data.y_test, xgb_results["y_prob_test"], model_name="XGBoost",
     )
 
-    # ================================================================
-    # 3. 1D-CNN (DEEP LEARNING)
-    # ================================================================
+    # Step 3: 1D-CNN
     cnn_model = None
     cnn_results = None
     if not args.skip_dl:
-        logger.info("\n▸ STEP 3 — 1D-CNN Training")
+        logger.info("\nSTEP 3 - 1D-CNN training")
         from src.models_dl import build_cnn
 
         cnn_model, cnn_results = build_cnn(data)
@@ -142,16 +119,14 @@ def main() -> None:
             data.y_test, cnn_results["y_prob_test"], model_name="1D-CNN",
         )
 
-        # Training history plot
+        # Save learning curves from CNN training.
         from src.evaluation import plot_training_history
         plot_training_history(cnn_results["history"])
     else:
-        logger.info("\n▸ STEP 3 — Skipped (--skip-dl)")
+        logger.info("\nSTEP 3 - Skipped (--skip-dl)")
 
-    # ================================================================
-    # 4. COMPARATIVE EVALUATION
-    # ================================================================
-    logger.info("\n▸ STEP 4 — Comparative Evaluation")
+    # Step 4: compare models
+    logger.info("\nSTEP 4 - Comparative evaluation")
     from src.evaluation import (
         plot_confusion_matrices,
         plot_roc_pr_curves,
@@ -171,7 +146,7 @@ def main() -> None:
             cnn_results["y_prob_test"],
         )
     else:
-        # Single-model mode — plot XGBoost confusion matrix only
+        # Single-model mode: only XGBoost confusion matrix.
         from sklearn.metrics import confusion_matrix as cm_fn
         import matplotlib
         matplotlib.use("Agg")
@@ -181,7 +156,7 @@ def main() -> None:
         cm = cm_fn(data.y_test, xgb_results["y_pred_test"])
         fig, ax = plt.subplots(figsize=(6, 5))
         sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", ax=ax)
-        ax.set_title("XGBoost — Confusion Matrix")
+        ax.set_title("XGBoost - Confusion Matrix")
         ax.set_ylabel("True")
         ax.set_xlabel("Predicted")
         plt.tight_layout()
@@ -198,14 +173,12 @@ def main() -> None:
 
     save_metrics_json(all_metrics)
 
-    # ================================================================
-    # 5. ROBUSTNESS / ADVERSARIAL TESTS
-    # ================================================================
+    # Step 5: robustness checks
     if not args.skip_robustness:
-        logger.info("\n▸ STEP 5 — Robustness & Adversarial Tests")
+        logger.info("\nSTEP 5 - Robustness and adversarial tests")
         from src.robustness import adversarial_sweep, plot_robustness_summary
 
-        # XGBoost predict function
+        # Wrap predict_proba so robustness code can call one function.
         def xgb_predict(X: "np.ndarray") -> "np.ndarray":
             return xgb_model.predict_proba(X)[:, 1]
 
@@ -229,18 +202,16 @@ def main() -> None:
         if adv_cnn:
             plot_robustness_summary(adv_xgb, adv_cnn)
 
-        # Save adversarial results
+        # Persist adversarial metrics.
         adv_path = OUTPUT_DIR / "adversarial_results.json"
         with open(adv_path, "w") as f:
             json.dump({"xgboost": adv_xgb, "cnn": adv_cnn}, f, indent=2)
-        logger.info("Adversarial results saved → %s", adv_path)
+        logger.info("Adversarial results saved to %s", adv_path)
     else:
-        logger.info("\n▸ STEP 5 — Skipped (--skip-robustness)")
+        logger.info("\nSTEP 5 - Skipped (--skip-robustness)")
 
-    # ================================================================
-    # 6. INTERPRETABILITY (SHAP + GRAD-CAM)
-    # ================================================================
-    logger.info("\n▸ STEP 6 — Interpretability")
+    # Step 6: interpretability
+    logger.info("\nSTEP 6 - Interpretability")
     from src.interpretability import explain_xgboost, explain_cnn
 
     if not args.skip_shap:
@@ -251,23 +222,21 @@ def main() -> None:
     if cnn_model is not None:
         explain_cnn(cnn_model, data.X_test, data.feature_names)
 
-    # ================================================================
-    # 7. TEMPORAL DRIFT ANALYSIS (Optional)
-    # ================================================================
+    # Step 7: optional temporal drift analysis
     if args.chrono:
-        logger.info("\n▸ STEP 7 — Temporal Drift Analysis")
+        logger.info("\nSTEP 7 - Temporal drift analysis")
         from src.preprocessing import run_preprocessing as prep
         from src.robustness import compare_temporal_drift
         from sklearn.metrics import f1_score
 
-        # Re-run with chronological split
+        # Rebuild splits by timestamp instead of random stratification.
         data_chrono = prep(
             data_dir=args.data_dir,
             chronological=True,
             apply_smote=not args.no_smote,
         )
 
-        # Retrain XGBoost on chrono split
+        # Retrain on the chronological split to compare degradation.
         from src.models_ml import build_xgboost as build_xgb_fn
         _, xgb_chrono_res = build_xgb_fn(data_chrono)
         f1_xgb_chrono = float(
@@ -293,22 +262,20 @@ def main() -> None:
         drift_path = OUTPUT_DIR / "temporal_drift.json"
         with open(drift_path, "w") as f:
             json.dump(drift_results, f, indent=2)
-        logger.info("Temporal drift results saved → %s", drift_path)
+        logger.info("Temporal drift results saved to %s", drift_path)
     else:
-        logger.info("\n▸ STEP 7 — Skipped (use --chrono to enable)")
+        logger.info("\nSTEP 7 - Skipped (use --chrono to enable)")
 
-    # ================================================================
-    # SUMMARY
-    # ================================================================
+    # Final summary
     elapsed = time.time() - t0
     logger.info("\n" + "=" * 70)
-    logger.info("  SENTINEL-DoH  —  Pipeline Complete  (%.1f s)", elapsed)
+    logger.info("  SENTINEL-DoH - Pipeline Complete  (%.1f s)", elapsed)
     logger.info("=" * 70)
     logger.info("Outputs directory: %s", OUTPUT_DIR)
     logger.info("Files generated:")
     for f in sorted(OUTPUT_DIR.glob("*")):
         if f.is_file():
-            logger.info("  • %s", f.name)
+            logger.info("  - %s", f.name)
 
 
 if __name__ == "__main__":

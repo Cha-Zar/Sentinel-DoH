@@ -1,8 +1,4 @@
-"""
-SENTINEL-DoH — Utility helpers
-===============================
-Logging setup, reproducibility seeds, and shared helper functions.
-"""
+"""Small utility helpers shared across the project."""
 
 import os
 import random
@@ -31,7 +27,7 @@ def set_seeds(seed: int = 42) -> None:
     np.random.seed(seed)
     os.environ["PYTHONHASHSEED"] = str(seed)
 
-    # PyTorch — import lazily to avoid hard dependency at top-level
+    # Import torch lazily so this module still works without it.
     try:
         import torch
         torch.manual_seed(seed)

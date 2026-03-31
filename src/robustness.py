@@ -1,18 +1,4 @@
-"""
-SENTINEL-DoH — Robustness & Adversarial Tests
-===============================================
-Section V of the specification.
-
-V.1  Temporal Drift Analysis
-    Compare F1-score between random-stratified split and chronological split.
-
-V.2  Adversarial Perturbations
-    (a) **Jittering** — Gaussian noise on IAT features (σ ∈ {5%, 10%, 20%}).
-    (b) **Padding**  — Uniform perturbation on packet-size features (±10%).
-
-The tests measure how much each model's F1-score degrades under these
-realistic evasion strategies.
-"""
+"""Robustness checks: temporal drift and simple adversarial perturbations."""
 
 from __future__ import annotations
 
@@ -42,14 +28,12 @@ from src.evaluation import compute_metrics
 logger = logging.getLogger("sentinel_doh")
 
 
-# ─── Feature-index helpers ──────────────────────────────────────────────────
 def _feature_indices(feature_names: List[str], target_features: List[str]) -> List[int]:
     """Return column indices of *target_features* within *feature_names*."""
     name_to_idx = {n: i for i, n in enumerate(feature_names)}
     return [name_to_idx[f] for f in target_features if f in name_to_idx]
 
 
-# ─── Jittering (Temporal Perturbation) ──────────────────────────────────────
 def apply_jitter(
     X: np.ndarray,
     feature_names: List[str],
@@ -79,7 +63,6 @@ def apply_jitter(
     return X_adv
 
 
-# ─── Padding (Spatial Perturbation) ─────────────────────────────────────────
 def apply_padding(
     X: np.ndarray,
     feature_names: List[str],
@@ -96,7 +79,7 @@ def apply_padding(
     """
     rng = rng or np.random.default_rng(42)
     X_adv = X.copy()
-    size_features = PACKET_LENGTH_FEATURES + FLOW_FEATURES  # flow bytes are also "size"
+    size_features = PACKET_LENGTH_FEATURES + FLOW_FEATURES  # Flow bytes act like size features too.
     indices = _feature_indices(feature_names, size_features)
 
     for idx in indices:
@@ -107,7 +90,6 @@ def apply_padding(
     return X_adv
 
 
-# ─── Generic adversarial sweep ──────────────────────────────────────────────
 def adversarial_sweep(
     model_name: str,
     predict_fn: Callable[[np.ndarray], np.ndarray],
@@ -129,13 +111,13 @@ def adversarial_sweep(
     """
     results: Dict[str, Dict] = {}
 
-    # ── Clean baseline ───────────────────────────────────────────────────
+    # Baseline on unmodified test data.
     y_prob_clean = predict_fn(X_test)
     y_pred_clean = (y_prob_clean >= 0.5).astype(int)
     metrics_clean = compute_metrics(y_test, y_pred_clean, y_prob_clean, f"{model_name} [clean]")
     results["clean"] = metrics_clean
 
-    # ── Jittering sweep ──────────────────────────────────────────────────
+    # Time-feature jitter sweep.
     for sigma in JITTER_SIGMAS:
         X_jit = apply_jitter(X_test, feature_names, sigma)
         y_prob = predict_fn(X_jit)
@@ -143,26 +125,23 @@ def adversarial_sweep(
         label = f"{model_name} [jitter σ={sigma:.0%}]"
         results[f"jitter_{sigma}"] = compute_metrics(y_test, y_pred, y_prob, label)
 
-    # ── Padding sweep ────────────────────────────────────────────────────
+    # Packet-size padding sweep.
     for delta in PADDING_DELTAS:
         X_pad = apply_padding(X_test, feature_names, delta)
         y_prob = predict_fn(X_pad)
         y_pred = (y_prob >= 0.5).astype(int)
-        label = f"{model_name} [padding δ=±{delta:.0%}]"
+        label = f"{model_name} [padding +/-{delta:.0%}]"
         results[f"padding_{delta}"] = compute_metrics(y_test, y_pred, y_prob, label)
 
     return results
 
 
-# ─── Temporal Drift Comparison ───────────────────────────────────────────────
 def compare_temporal_drift(
     f1_random: float,
     f1_chrono: float,
     model_name: str,
 ) -> Dict:
-    """
-    Report F1 degradation between random and chronological splits (Section V.1).
-    """
+    """Report F1 degradation from random split to chronological split."""
     drift = f1_random - f1_chrono
     pct = (drift / f1_random * 100) if f1_random > 0 else 0.0
     result = {
@@ -173,13 +152,12 @@ def compare_temporal_drift(
         "degradation_pct": pct,
     }
     logger.info(
-        "Temporal drift [%s]: F1 random=%.4f → chrono=%.4f  (Δ=%.4f, −%.1f%%)",
+        "Temporal drift [%s]: F1 random=%.4f -> chrono=%.4f  (delta=%.4f, -%.1f%%)",
         model_name, f1_random, f1_chrono, drift, pct,
     )
     return result
 
 
-# ─── Robustness Summary Plot ────────────────────────────────────────────────
 def plot_robustness_summary(
     adv_results_ml: Dict,
     adv_results_dl: Dict,

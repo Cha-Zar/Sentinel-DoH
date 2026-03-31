@@ -1,0 +1,11 @@
+services:
+  sentinel-doh:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sentinel-doh:latest
+    container_name: sentinel-doh
+    volumes:
+      - ./data:/app/data:ro
+      - ./outputs:/app/outputs
+    command: python main.py

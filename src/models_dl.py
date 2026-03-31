@@ -1,25 +1,4 @@
-"""
-SENTINEL-DoH — 1D-CNN Deep Learning Model (PyTorch)
-=====================================================
-Section III.2 of the specification.
-
-Architecture
-~~~~~~~~~~~~
-Conv1D(64) → BatchNorm → ReLU → MaxPool
-Conv1D(128) → GlobalAveragePooling
-Dense(64) → Dropout(0.3) → Dense(1, sigmoid)
-
-Input Representation
-~~~~~~~~~~~~~~~~~~~~
-The 29 numeric features are reshaped into ``(batch, 1, 29)`` — a single-channel
-1D signal of length 29.  Conv1D filters learn local patterns across
-neighbouring statistical measures (e.g. mean → std → skew transitions).
-
-Imbalance Handling
-~~~~~~~~~~~~~~~~~~
-Weighted Binary Cross-Entropy with class weights inversely proportional to
-class frequencies (Section III.2).
-"""
+"""PyTorch 1D-CNN model, training loop, and prediction helpers."""
 
 from __future__ import annotations
 
@@ -40,49 +19,47 @@ logger = logging.getLogger("sentinel_doh")
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-# ─── Model Definition ───────────────────────────────────────────────────────
 class SentinelCNN1D(nn.Module):
-    """1D-CNN per Section III.2 of the specification."""
+    """Simple 1D-CNN for tabular feature sequences."""
 
     def __init__(self, n_features: int):
         super().__init__()
-        # Block 1: Conv1D(64) → BatchNorm → ReLU → MaxPool
+        # First conv block.
         self.conv1 = nn.Conv1d(1, CNN_PARAMS["conv1_filters"], kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm1d(CNN_PARAMS["conv1_filters"])
         self.relu1 = nn.ReLU()
         self.pool1 = nn.MaxPool1d(kernel_size=2, ceil_mode=True)
 
-        # Block 2: Conv1D(128) → GlobalAveragePooling
+        # Second conv block with global average pooling.
         self.conv2 = nn.Conv1d(CNN_PARAMS["conv1_filters"], CNN_PARAMS["conv2_filters"], kernel_size=3, padding=1)
-        self.gap = nn.AdaptiveAvgPool1d(1)  # Global Average Pooling
+        self.gap = nn.AdaptiveAvgPool1d(1)
 
-        # Classifier head
+        # Classification head.
         self.fc1 = nn.Linear(CNN_PARAMS["conv2_filters"], CNN_PARAMS["dense_units"])
         self.relu2 = nn.ReLU()
         self.dropout = nn.Dropout(CNN_PARAMS["dropout_rate"])
         self.fc2 = nn.Linear(CNN_PARAMS["dense_units"], 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x shape: (batch, 1, n_features)
+        # x: (batch, 1, n_features)
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu1(x)
         x = self.pool1(x)
 
         x = self.conv2(x)
-        self._conv2_out = x        # cache for Grad-CAM interpretability
+        self._conv2_out = x  # Cached for Grad-CAM.
 
-        x = self.gap(x)            # (batch, 128, 1)
-        x = x.squeeze(-1)          # (batch, 128)
+        x = self.gap(x)  # (batch, 128, 1)
+        x = x.squeeze(-1)  # (batch, 128)
 
         x = self.fc1(x)
         x = self.relu2(x)
         x = self.dropout(x)
-        x = self.fc2(x)            # (batch, 1) — raw logit
+        x = self.fc2(x)  # (batch, 1) raw logit
         return x
 
 
-# ─── Helpers ─────────────────────────────────────────────────────────────────
 def _compute_pos_weight(y: np.ndarray) -> torch.Tensor:
     """Inverse-frequency class weight for BCEWithLogitsLoss pos_weight."""
     from sklearn.utils.class_weight import compute_class_weight
@@ -91,21 +68,20 @@ def _compute_pos_weight(y: np.ndarray) -> torch.Tensor:
     weights = compute_class_weight("balanced", classes=classes, y=y)
     cw = {int(c): float(w) for c, w in zip(classes, weights)}
     logger.info("CNN class weights: %s", cw)
-    # pos_weight = weight_positive / weight_negative
+    # pos_weight for BCEWithLogitsLoss.
     pos_weight = cw.get(1, 1.0) / cw.get(0, 1.0)
     return torch.tensor([pos_weight], dtype=torch.float32)
 
 
 def _make_loader(X: np.ndarray, y: np.ndarray, batch_size: int, shuffle: bool) -> DataLoader:
     """Create a PyTorch DataLoader from numpy arrays."""
-    # Conv1D expects (batch, channels=1, length=n_features)
+    # Conv1D input shape is (batch, channels, length).
     X_t = torch.tensor(X, dtype=torch.float32).unsqueeze(1)
     y_t = torch.tensor(y, dtype=torch.float32).unsqueeze(1)
     ds = TensorDataset(X_t, y_t)
     return DataLoader(ds, batch_size=batch_size, shuffle=shuffle)
 
 
-# ─── Training / Evaluation Loops ────────────────────────────────────────────
 def _train_epoch(model, loader, criterion, optimizer):
     model.train()
     total_loss, n = 0.0, 0
@@ -160,7 +136,6 @@ def _predict(model, X: np.ndarray, batch_size: int) -> np.ndarray:
     return np.concatenate(probs)
 
 
-# ─── Public Entry Point ─────────────────────────────────────────────────────
 def build_cnn(data: SplitData) -> Tuple[SentinelCNN1D, Dict]:
     """
     Build, train the 1D-CNN and return the model + results dict.
@@ -177,7 +152,7 @@ def build_cnn(data: SplitData) -> Tuple[SentinelCNN1D, Dict]:
     model = SentinelCNN1D(n_features).to(DEVICE)
     logger.info("Model architecture:\n%s", model)
 
-    # ── Weighted BCE ─────────────────────────────────────────────────────
+    # Weighted BCE for class imbalance.
     pos_weight = _compute_pos_weight(data.y_train).to(DEVICE)
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
@@ -186,12 +161,12 @@ def build_cnn(data: SplitData) -> Tuple[SentinelCNN1D, Dict]:
         optimizer, mode="max", factor=0.5, patience=3, min_lr=1e-6,
     )
 
-    # ── DataLoaders ──────────────────────────────────────────────────────
+    # Data loaders.
     bs = CNN_PARAMS["batch_size"]
     train_loader = _make_loader(data.X_train, data.y_train, bs, shuffle=True)
     val_loader = _make_loader(data.X_val, data.y_val, bs, shuffle=False)
 
-    # ── Training loop with early stopping ────────────────────────────────
+    # Training loop with early stopping.
     epochs = CNN_PARAMS["epochs"]
     patience = CNN_PARAMS["patience"]
     best_auc = -1.0
@@ -207,7 +182,7 @@ def build_cnn(data: SplitData) -> Tuple[SentinelCNN1D, Dict]:
         train_loss = _train_epoch(model, train_loader, criterion, optimizer)
         val_loss, val_auc, _ = _eval_epoch(model, val_loader, criterion)
 
-        # Compute train AUC for history
+        # Track train AUC for the learning curves.
         _, train_auc, _ = _eval_epoch(model, train_loader, criterion)
 
         history["loss"].append(train_loss)
@@ -233,17 +208,17 @@ def build_cnn(data: SplitData) -> Tuple[SentinelCNN1D, Dict]:
                 logger.info("  Early stopping at epoch %d (best val_auc=%.4f)", epoch, best_auc)
                 break
 
-    # Restore best weights
+    # Restore best checkpoint.
     if best_state is not None:
         model.load_state_dict(best_state)
 
-    # ── Predictions ──────────────────────────────────────────────────────
+    # Final predictions.
     y_prob_val = _predict(model, data.X_val, bs)
     y_prob_test = _predict(model, data.X_test, bs)
     y_pred_val = (y_prob_val >= 0.5).astype(int)
     y_pred_test = (y_prob_test >= 0.5).astype(int)
 
-    # ── Save model ───────────────────────────────────────────────────────
+    # Save model checkpoint.
     model_path = OUTPUT_DIR / "cnn_model.pt"
     torch.save(model.state_dict(), str(model_path))
     logger.info("CNN model saved → %s", model_path)

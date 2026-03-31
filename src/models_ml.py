@@ -1,13 +1,4 @@
-"""
-SENTINEL-DoH — XGBoost Baseline (ML Model)
-============================================
-Section III.1 of the specification.
-
-* Statistical feature vector as input.
-* ``scale_pos_weight`` computed from training-set class ratio.
-* SMOTE applied upstream (preprocessing module).
-* Returns trained model + predictions for evaluation.
-"""
+"""XGBoost baseline model and prediction helpers."""
 
 from __future__ import annotations
 
@@ -61,20 +52,20 @@ def build_xgboost(data: SplitData) -> Tuple[XGBClassifier, Dict]:
         verbose=False,
     )
 
-    # ── Predictions ──────────────────────────────────────────────────────
+    # Validation and test predictions.
     y_prob_val = model.predict_proba(data.X_val)[:, 1]
     y_prob_test = model.predict_proba(data.X_test)[:, 1]
     y_pred_val = (y_prob_val >= 0.5).astype(int)
     y_pred_test = (y_prob_test >= 0.5).astype(int)
 
-    # ── Feature importance (gain-based) ──────────────────────────────────
+    # Gain-based feature importance for quick inspection.
     importance = dict(
         zip(data.feature_names, model.feature_importances_)
     )
     top_5 = sorted(importance.items(), key=lambda x: x[1], reverse=True)[:5]
     logger.info("Top-5 features (gain): %s", top_5)
 
-    # ── Save model ───────────────────────────────────────────────────────
+    # Save model artifact for reuse.
     model_path = OUTPUT_DIR / "xgboost_model.json"
     model.save_model(str(model_path))
     logger.info("XGBoost model saved → %s", model_path)
